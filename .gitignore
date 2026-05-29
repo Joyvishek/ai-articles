@@ -1,0 +1,4 @@
+digest_config.json
+sent_articles.json
+__pycache__/
+*.pyc

@@ -1,0 +1,54 @@
+{
+  "lookback_hours": 30,
+  "max_articles": 12,
+  "filter_ai_keywords": true,
+  "fetch_article_pages": true,
+  "min_summary_chars": 120,
+  "email": {
+    "to": [
+      "joyghosh.lenovo@gmail.com"
+    ],
+    "from": "privatebrowser.ai@gmail.com",
+    "subject": "Daily AI Article Digest"
+  },
+  "smtp": {
+    "host": "smtp.gmail.com",
+    "port": 587,
+    "username": "privatebrowser.ai@gmail.com",
+    "password": "use-an-app-password-or-env-var"
+  },
+  "feeds": [
+    {
+      "name": "OpenAI Developers",
+      "url": "https://developers.openai.com/rss.xml"
+    },
+    {
+      "name": "Google DeepMind",
+      "url": "https://deepmind.google/blog/rss.xml"
+    },
+    {
+      "name": "Google AI Blog",
+      "url": "https://blog.google/technology/ai/rss/"
+    },
+    {
+      "name": "MIT News AI",
+      "url": "https://news.mit.edu/rss/topic/artificial-intelligence2"
+    },
+    {
+      "name": "MIT Technology Review",
+      "url": "https://www.technologyreview.com/feed/"
+    },
+    {
+      "name": "VentureBeat AI",
+      "url": "https://venturebeat.com/category/ai/feed/"
+    },
+    {
+      "name": "The Verge AI",
+      "url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"
+    },
+    {
+      "name": "Ars Technica AI",
+      "url": "https://feeds.arstechnica.com/arstechnica/technology-lab"
+    }
+  ]
+}
