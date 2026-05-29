@@ -6,15 +6,15 @@
   "min_summary_chars": 120,
   "email": {
     "to": [
-      "joyghosh.lenovo@gmail.com"
+      "joyghosh@yopmail.com"
     ],
-    "from": "privatebrowser.ai@gmail.com",
+    "from": "example@gmail.com",
     "subject": "Daily AI Article Digest"
   },
   "smtp": {
     "host": "smtp.gmail.com",
     "port": 587,
-    "username": "privatebrowser.ai@gmail.com",
+    "username": "example@gmail.com",
     "password": "use-an-app-password-or-env-var"
   },
   "feeds": [
