@@ -53,7 +53,6 @@ AI_PATTERNS = [
     r"\bstable diffusion\b",
 ]
 
-# One accent color per source name (cycles through these)
 _SOURCE_COLORS = [
     ("teal",   "#E1F5EE", "#085041"),
     ("purple", "#EEEDFE", "#3C3489"),
@@ -66,7 +65,6 @@ _source_color_cache: dict[str, tuple[str, str]] = {}
 
 
 def _source_colors(source: str) -> tuple[str, str]:
-    """Return (bg, fg) hex for a source name, stable across calls."""
     if source not in _source_color_cache:
         idx = len(_source_color_cache) % len(_SOURCE_COLORS)
         _, bg, fg = _SOURCE_COLORS[idx]
@@ -97,7 +95,10 @@ def load_json(path: Path, default):
     if not path.exists():
         return default
     with path.open("r", encoding="utf-8-sig") as handle:
-        return json.load(handle)
+        content = handle.read().strip()
+    if not content:
+        return default
+    return json.loads(content)
 
 
 def save_json(path: Path, data) -> None:
@@ -165,7 +166,6 @@ def entry_link(element: ET.Element) -> str:
     direct = child_text(element, ["link"])
     if direct and direct.startswith(("http://", "https://")):
         return direct.strip()
-
     for child in element.iter():
         tag = child.tag.rsplit("}", 1)[-1].lower()
         href = child.attrib.get("href", "")
@@ -187,7 +187,6 @@ def parse_feed(xml_text: str, source_name: str) -> list[Article]:
         link = entry_link(entry)
         if not link:
             continue
-
         published = parse_datetime(
             child_text(entry, ["pubdate", "published", "updated", "date"])
         )
@@ -212,7 +211,6 @@ def extract_article_text(page_html: str) -> str:
     )
     if meta_match:
         return strip_markup(meta_match.group(1))
-
     paragraphs = re.findall(r"(?is)<p[^>]*>(.*?)</p>", page_html)
     text = " ".join(strip_markup(paragraph) for paragraph in paragraphs[:8])
     return normalize_space(text)
@@ -225,7 +223,6 @@ def enrich_summary(article: Article, min_chars: int) -> Article:
         page_html = request_text(article.link, timeout=15)
     except (urllib.error.URLError, TimeoutError, OSError, ValueError):
         return article
-
     page_text = extract_article_text(page_html)
     if len(page_text) > len(article.summary):
         article.summary = page_text
@@ -236,11 +233,9 @@ def summarize(text: str, max_sentences: int = 3, max_chars: int = 650) -> str:
     text = normalize_space(text)
     if not text:
         return "No summary was available from the feed."
-
     sentences = sentence_split(text)
     if not sentences:
         return textwrap.shorten(text, width=max_chars, placeholder="...")
-
     chosen = sentences[:max_sentences]
     summary = " ".join(chosen)
     return textwrap.shorten(summary, width=max_chars, placeholder="...")
@@ -310,62 +305,27 @@ def _relative_time(published: dt.datetime | None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# HTML email builder
+# HTML email builder — table-based layout, mobile-first
 # ---------------------------------------------------------------------------
 
-_EMAIL_CSS = """
-<style>
-  body,table,td,p,a{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}
-  body{background:#f5f5f3;margin:0;padding:0}
-  .wrap{max-width:640px;margin:32px auto;background:#f5f5f3;padding:0 12px 40px}
-  .header{display:flex;align-items:center;justify-content:space-between;
-          padding:20px 0 16px;border-bottom:1px solid #e2e0d8;margin-bottom:20px}
-  .brand{display:flex;align-items:center;gap:10px}
-  .brand-icon{width:36px;height:36px;border-radius:8px;background:#E1F5EE;
-              display:flex;align-items:center;justify-content:center;
-              font-size:18px;flex-shrink:0}
-  .brand-name{font-size:15px;font-weight:600;color:#1a1a1a;margin:0}
-  .brand-sub{font-size:12px;color:#888780;margin:2px 0 0}
-  .date-badge{font-size:12px;font-weight:500;color:#085041;background:#E1F5EE;
-              border-radius:20px;padding:4px 12px;white-space:nowrap}
-  .intro{font-size:13px;color:#5F5E5A;line-height:1.6;margin-bottom:16px}
-  .intro strong{color:#1a1a1a;font-weight:500}
-  .stats-row{display:table;width:100%;border-collapse:separate;
-             border-spacing:10px 0;margin:0 -10px 20px}
-  .stat{display:table-cell;background:#fff;border:1px solid #e8e6de;
-        border-radius:8px;padding:10px 14px;width:33%}
-  .stat-n{font-size:22px;font-weight:600;color:#1a1a1a;display:block}
-  .stat-l{font-size:12px;color:#888780;margin-top:2px;display:block}
-  .section-label{font-size:11px;font-weight:600;letter-spacing:.06em;
-                 color:#888780;text-transform:uppercase;
-                 margin:20px 0 10px;padding-bottom:6px;
-                 border-bottom:1px solid #e2e0d8}
-  .card{background:#fff;border:1px solid #e8e6de;border-radius:10px;
-        padding:16px 18px;margin-bottom:10px}
-  .card.top{border-left:3px solid #1D9E75;border-radius:0 10px 10px 0}
-  .card-meta{display:flex;align-items:center;gap:8px;margin-bottom:8px;
-             flex-wrap:wrap}
-  .source-pill{font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;
-               letter-spacing:.02em}
-  .top-tag{font-size:11px;font-weight:600;color:#085041;
-           display:inline-flex;align-items:center;gap:3px}
-  .card-time{font-size:12px;color:#b4b2a9;margin-left:auto}
-  .card-title{font-size:15px;font-weight:600;color:#1a1a1a;line-height:1.45;
-              text-decoration:none;display:block;margin-bottom:7px}
-  .card-title:hover{color:#0F6E56}
-  .card-summary{font-size:13px;color:#5F5E5A;line-height:1.65;margin-bottom:10px}
-  .read-link{font-size:12px;color:#0F6E56;text-decoration:none;font-weight:500}
-  .read-link:hover{color:#085041}
-  .footer{margin-top:24px;padding-top:16px;border-top:1px solid #e2e0d8;
-          font-size:12px;color:#b4b2a9;line-height:1.7}
-  .unsub{color:#b4b2a9;text-decoration:underline}
-  @media(max-width:520px){
-    .stats-row{display:block}
-    .stat{display:block;width:auto;margin-bottom:8px}
-    .card-time{margin-left:0}
-  }
-</style>
-"""
+def _pill(text: str, bg: str, fg: str) -> str:
+    return (
+        f'<span style="display:inline-block;font-family:-apple-system,BlinkMacSystemFont,'
+        f'\'Segoe UI\',Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;'
+        f'line-height:1;padding:3px 9px;border-radius:20px;'
+        f'background:{bg};color:{fg};letter-spacing:0.02em">{text}</span>'
+    )
+
+
+def _section_label(text: str) -> str:
+    return f"""
+<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
+  <tr>
+    <td style="padding:20px 0 8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+               font-size:11px;font-weight:600;letter-spacing:0.06em;color:#888780;text-transform:uppercase;
+               border-bottom:1px solid #e2e0d8">{html.escape(text)}</td>
+  </tr>
+</table>"""
 
 
 def _article_card_html(article: Article, index: int) -> str:
@@ -378,23 +338,61 @@ def _article_card_html(article: Article, index: int) -> str:
     rel_time = e(_relative_time(article.published))
     bg, fg = _source_colors(article.source)
 
-    top_tag = (
-        '<span class="top-tag">&#9889; Top story&nbsp;&nbsp;</span>'
-        if is_top else ""
-    )
-    card_class = "card top" if is_top else "card"
+    left_border = "border-left:3px solid #1D9E75;" if is_top else ""
+    border_radius = "border-radius:0 10px 10px 0;" if is_top else "border-radius:10px;"
+
+    top_tag = ""
+    if is_top:
+        top_tag = (
+            '<span style="display:inline-block;font-family:-apple-system,BlinkMacSystemFont,'
+            '\'Segoe UI\',Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;'
+            'color:#085041;margin-right:6px">&#9889; Top story</span>'
+        )
+
+    source_pill = _pill(source, bg, fg)
 
     return f"""
-<div class="{card_class}">
-  <div class="card-meta">
-    {top_tag}
-    <span class="source-pill" style="background:{bg};color:{fg}">{source}</span>
-    <span class="card-time">{rel_time}</span>
-  </div>
-  <a class="card-title" href="{link}">{title}</a>
-  <p class="card-summary">{summary}</p>
-  <a class="read-link" href="{link}">Read full article &#8599;</a>
-</div>"""
+<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
+       style="margin-bottom:10px">
+  <tr>
+    <td style="background:#ffffff;{left_border}{border_radius}
+               border:1px solid #e8e6de;padding:16px 18px;
+               font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
+        <tr>
+          <td style="padding-bottom:8px;line-height:1.4">
+            {top_tag}{source_pill}
+            <span style="font-size:12px;color:#b4b2a9;float:right;
+                         font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">{rel_time}</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding-bottom:7px">
+            <a href="{link}"
+               style="font-size:15px;font-weight:600;color:#1a1a1a;text-decoration:none;
+                      line-height:1.45;display:block;
+                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">{title}</a>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding-bottom:10px">
+            <p style="margin:0;font-size:13px;color:#5F5E5A;line-height:1.65;
+                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">{summary}</p>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <a href="{link}"
+               style="font-size:12px;font-weight:500;color:#0F6E56;text-decoration:none;
+                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">Read full article &#8599;</a>
+          </td>
+        </tr>
+      </table>
+
+    </td>
+  </tr>
+</table>"""
 
 
 def build_email(config: dict, articles: list[Article]) -> tuple[str, str]:
@@ -403,8 +401,9 @@ def build_email(config: dict, articles: list[Article]) -> tuple[str, str]:
     lookback = int(config.get("lookback_hours", 30))
     feed_count = len(config.get("feeds", []))
     article_count = len(articles)
+    e = html.escape
 
-    # ── plain-text version ──────────────────────────────────────────────────
+    # ── plain-text ──────────────────────────────────────────────────────────
     plain_lines = [subject, ""]
     if not articles:
         plain_lines.append("No new AI articles were found today.")
@@ -412,8 +411,7 @@ def build_email(config: dict, articles: list[Article]) -> tuple[str, str]:
         for article in articles:
             published = (
                 article.published.strftime("%Y-%m-%d %H:%M UTC")
-                if article.published
-                else "date unavailable"
+                if article.published else "date unavailable"
             )
             plain_lines.extend([
                 article.title,
@@ -423,81 +421,169 @@ def build_email(config: dict, articles: list[Article]) -> tuple[str, str]:
                 "",
             ])
 
-    # ── HTML version ────────────────────────────────────────────────────────
-    e = html.escape
-    sender_address = e(
-        config.get("email", {}).get("from", "digest@example.com")
-    )
+    # ── HTML ────────────────────────────────────────────────────────────────
+    sender_address = e(config.get("email", {}).get("from", "digest@example.com"))
 
-    # Split articles into "latest" (≤6h old) and "earlier"
     cutoff = utc_now() - dt.timedelta(hours=6)
-    latest = [a for a in articles if a.published and a.published >= cutoff]
-    earlier = [a for a in articles if a not in latest]
-    # articles without a date go into latest
-    no_date = [a for a in articles if a.published is None and a not in latest]
-    latest += no_date
+    latest  = [a for a in articles if a.published and a.published >= cutoff]
+    earlier = [a for a in articles if a not in latest and a.published is not None]
+    no_date = [a for a in articles if a.published is None]
+    latest  += no_date
 
     cards_html = ""
     global_idx = 0
     if latest:
-        cards_html += '<div class="section-label">Latest</div>'
+        cards_html += _section_label("Latest")
         for a in latest:
             cards_html += _article_card_html(a, global_idx)
             global_idx += 1
     if earlier:
-        cards_html += '<div class="section-label">Earlier today</div>'
+        cards_html += _section_label("Earlier today")
         for a in earlier:
             cards_html += _article_card_html(a, global_idx)
             global_idx += 1
 
     if not articles:
-        cards_html = "<p style='color:#888780;font-size:14px'>No new AI articles were found today.</p>"
+        cards_html = (
+            "<p style='font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Helvetica,"
+            "Arial,sans-serif;font-size:14px;color:#888780;margin:20px 0'>"
+            "No new AI articles were found today.</p>"
+        )
+
+    # Stats row — three cells, each 33%, stacks on mobile via max-width trick
+    def stat_cell(value: str, label: str) -> str:
+        return (
+            f'<td width="33%" style="padding:0 5px">'
+            f'<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">'
+            f'<tr><td style="background:#ffffff;border:1px solid #e8e6de;border-radius:8px;'
+            f'padding:10px 14px;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\','
+            f'Helvetica,Arial,sans-serif">'
+            f'<span style="display:block;font-size:22px;font-weight:600;color:#1a1a1a">{e(value)}</span>'
+            f'<span style="display:block;font-size:12px;color:#888780;margin-top:2px">{e(label)}</span>'
+            f'</td></tr></table></td>'
+        )
+
+    stats_row = (
+        '<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"'
+        ' style="margin:0 -5px 20px">'
+        "<tr>"
+        + stat_cell(str(article_count), "Articles today")
+        + stat_cell(str(feed_count), "Sources scanned")
+        + stat_cell(f"{lookback}h", "Lookback window")
+        + "</tr></table>"
+    )
 
     html_body = f"""<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{e(subject)}</title>
-{_EMAIL_CSS}
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>{e(subject)}</title>
+  <style>
+    body, table, td, p, a, span {{
+      -webkit-text-size-adjust: 100%;
+      -ms-text-size-adjust: 100%;
+    }}
+    table, td {{ mso-table-lspace: 0pt; mso-table-rspace: 0pt; }}
+    img {{ -ms-interpolation-mode: bicubic; border: 0; }}
+    @media only screen and (max-width: 520px) {{
+      .outer-wrap {{ width: 100% !important; padding: 0 12px !important; }}
+      .stat-cell {{ display: block !important; width: 100% !important;
+                    padding: 0 0 8px 0 !important; }}
+      .stat-inner {{ width: 100% !important; }}
+      .card-time  {{ float: none !important; display: block !important;
+                    margin-top: 4px !important; }}
+    }}
+  </style>
 </head>
-<body>
-<div class="wrap">
+<body style="margin:0;padding:0;background:#f5f5f3">
 
-  <div class="header">
-    <div class="brand">
-      <div class="brand-icon">&#129504;</div>
-      <div>
-        <p class="brand-name">AI Article Digest</p>
-        <p class="brand-sub">Your curated daily intelligence briefing</p>
-      </div>
-    </div>
-    <span class="date-badge">{e(today)}</span>
-  </div>
+<table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation"
+       style="background:#f5f5f3">
+  <tr>
+    <td align="center" style="padding:32px 0 40px">
 
-  <p class="intro">
-    Here are today&rsquo;s <strong>{article_count} AI article{'s' if article_count != 1 else ''}</strong>
-    pulled from <strong>{feed_count} source{'s' if feed_count != 1 else ''}</strong>
-    across the past <strong>{lookback} hours</strong>.
-    Everything below matched your AI keyword filter.
-  </p>
+      <table class="outer-wrap" width="600" cellpadding="0" cellspacing="0" border="0"
+             role="presentation" style="width:600px;max-width:600px">
 
-  <table class="stats-row" role="presentation">
-    <tr>
-      <td class="stat"><span class="stat-n">{article_count}</span><span class="stat-l">Articles today</span></td>
-      <td class="stat"><span class="stat-n">{feed_count}</span><span class="stat-l">Sources scanned</span></td>
-      <td class="stat"><span class="stat-n">{lookback}h</span><span class="stat-l">Lookback window</span></td>
-    </tr>
-  </table>
+        <!-- HEADER -->
+        <tr>
+          <td style="padding-bottom:16px;border-bottom:1px solid #e2e0d8;margin-bottom:20px">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
+              <tr>
+                <td style="vertical-align:middle">
+                  <table cellpadding="0" cellspacing="0" border="0" role="presentation">
+                    <tr>
+                      <td style="width:36px;height:36px;border-radius:8px;background:#E1F5EE;
+                                 text-align:center;vertical-align:middle;font-size:20px;
+                                 padding:0 8px">&#129504;</td>
+                      <td style="padding-left:10px;vertical-align:middle">
+                        <span style="display:block;font-family:-apple-system,BlinkMacSystemFont,
+                          'Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;
+                          color:#1a1a1a">AI Article Digest</span>
+                        <span style="display:block;font-family:-apple-system,BlinkMacSystemFont,
+                          'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;color:#888780;
+                          margin-top:2px">Your curated daily intelligence briefing</span>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+                <td align="right" style="vertical-align:middle">
+                  <span style="display:inline-block;font-family:-apple-system,BlinkMacSystemFont,
+                    'Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;font-weight:500;
+                    color:#085041;background:#E1F5EE;border-radius:20px;
+                    padding:4px 12px;white-space:nowrap">{e(today)}</span>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
 
-  {cards_html}
+        <!-- SPACER -->
+        <tr><td style="height:20px"></td></tr>
 
-  <div class="footer">
-    Sent by AI Article Digest &middot; {sender_address}<br>
-    Fetched from {feed_count} feed{'s' if feed_count != 1 else ''} &middot;
-    state saved to sent_articles.json<br><br>
-    <a class="unsub" href="#">Unsubscribe</a>
-  </div>
+        <!-- INTRO -->
+        <tr>
+          <td style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,
+                     sans-serif;font-size:13px;color:#5F5E5A;line-height:1.6;padding-bottom:16px">
+            Here are today&rsquo;s
+            <strong style="color:#1a1a1a;font-weight:600">{article_count} AI article{'s' if article_count != 1 else ''}</strong>
+            pulled from
+            <strong style="color:#1a1a1a;font-weight:600">{feed_count} source{'s' if feed_count != 1 else ''}</strong>
+            across the past
+            <strong style="color:#1a1a1a;font-weight:600">{lookback} hours</strong>.
+            Everything below matched your AI keyword filter.
+          </td>
+        </tr>
 
-</div>
+        <!-- STATS -->
+        <tr>
+          <td style="padding-bottom:4px">{stats_row}</td>
+        </tr>
+
+        <!-- ARTICLES -->
+        <tr>
+          <td>{cards_html}</td>
+        </tr>
+
+        <!-- FOOTER -->
+        <tr>
+          <td style="padding-top:20px;border-top:1px solid #e2e0d8;
+                     font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,
+                     sans-serif;font-size:12px;color:#b4b2a9;line-height:1.7">
+            Sent by AI Article Digest &middot; {sender_address}<br>
+            Fetched from {feed_count} feed{'s' if feed_count != 1 else ''} &middot;
+            state saved to sent_articles.json<br><br>
+            <a href="#" style="color:#b4b2a9;text-decoration:underline">Unsubscribe</a>
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>
+
 </body>
 </html>"""
 
@@ -505,7 +591,7 @@ def build_email(config: dict, articles: list[Article]) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Everything below is unchanged from the original script
+# Everything below is unchanged
 # ---------------------------------------------------------------------------
 
 def get_recipients(config: dict) -> list[str]:
