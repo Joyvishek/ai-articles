@@ -48,13 +48,13 @@ $env:DIGEST_SMTP_PASSWORD = "your_app_password"
 ## Test It
 
 ```powershell
-python .\ai_article_digest.py --config .\digest_config.json --dry-run
+python .\main.py --config .\digest_config.json --dry-run
 ```
 
 Send a real email:
 
 ```powershell
-python .\ai_article_digest.py --config .\digest_config.json
+python .\main.py --config .\digest_config.json
 ```
 
 If no new AI articles are found, the app exits successfully and does not send an email.
@@ -108,7 +108,7 @@ Start-ScheduledTask -TaskName "Daily AI Article Digest"
 To test the Python command directly:
 
 ```powershell
-python .\ai_article_digest.py --config .\digest_config.json
+python .\main.py --config .\digest_config.json
 ```
 
 To delete the scheduled task:
@@ -189,7 +189,7 @@ export DIGEST_SMTP_PASSWORD=your_gmail_app_password
 Example command:
 
 ```bash
-cd /home/YOUR_USERNAME/ai-articles && python3 ai_article_digest.py --config digest_config.json
+cd /home/YOUR_USERNAME/ai-articles && python3 main.py --config digest_config.json
 ```
 
 Free PythonAnywhere accounts may restrict outbound internet access to an allowlist. If a feed or SMTP host is blocked, use a paid account or another scheduler that allows outbound SMTP and RSS requests.

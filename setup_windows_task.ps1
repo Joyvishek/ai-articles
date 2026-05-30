@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Python = (Get-Command python).Source
-$Script = Join-Path $ProjectDir "ai_article_digest.py"
+$Script = Join-Path $ProjectDir "main.py"
 $Config = Join-Path $ProjectDir "digest_config.json"
 
 if (-not (Test-Path $Config)) {
