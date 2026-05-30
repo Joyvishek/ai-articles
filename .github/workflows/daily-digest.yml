@@ -1,0 +1,64 @@
+name: Daily AI Article Digest
+
+on:
+  schedule:
+    # GitHub cron uses UTC. 06:30 UTC is 12:00 PM IST.
+    - cron: "30 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-ai-article-digest
+  cancel-in-progress: false
+
+jobs:
+  send-digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Write private digest config
+        env:
+          DIGEST_CONFIG_JSON: ${{ secrets.DIGEST_CONFIG_JSON }}
+        run: |
+          if [ -z "$DIGEST_CONFIG_JSON" ]; then
+            echo "::error::Missing repository secret DIGEST_CONFIG_JSON."
+            exit 1
+          fi
+
+          printf '%s' "$DIGEST_CONFIG_JSON" > digest_config.json
+          python -m json.tool digest_config.json > /tmp/digest_config.json
+          mv /tmp/digest_config.json digest_config.json
+
+      - name: Ensure state file exists
+        run: |
+          mkdir -p state
+          if [ ! -s state/sent_articles_state.json ]; then
+            printf '{\n  "sent_links": []\n}\n' > state/sent_articles_state.json
+          fi
+
+      - name: Send digest
+        run: python main.py --config digest_config.json --state state/sent_articles_state.json
+
+      - name: Save sent-article state
+        run: |
+          if git diff --quiet -- state/sent_articles_state.json; then
+            echo "No sent-article state changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/sent_articles_state.json
+          git commit -m "Update sent article state [skip ci]"
+          git push

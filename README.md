@@ -169,6 +169,19 @@ docker compose run --rm ai-articles
 
 Docker does not schedule jobs by itself. Schedule the `docker run` or `docker compose run` command with Windows Task Scheduler, cron, GitHub Actions, or your server's scheduler.
 
+## GitHub Actions
+
+GitHub Actions can run the digest every day without a separate server.
+
+1. In GitHub, open this repository's **Settings** > **Secrets and variables** > **Actions**.
+2. Add a repository secret named `DIGEST_CONFIG_JSON`.
+3. Paste the full private `digest_config.json` contents as the secret value.
+4. Open **Actions** > **Daily AI Article Digest** and run it manually once, or wait for the daily schedule.
+
+The included workflow runs at `06:30 UTC`, which is `12:00 PM IST`.
+
+The workflow stores sent links in `state/sent_articles_state.json` and commits that file back to the repository so the same links are not emailed every day.
+
 ## PythonAnywhere
 
 PythonAnywhere can run this as a scheduled task.
