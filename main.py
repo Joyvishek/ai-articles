@@ -53,6 +53,26 @@ AI_PATTERNS = [
     r"\bstable diffusion\b",
 ]
 
+# One accent color per source name (cycles through these)
+_SOURCE_COLORS = [
+    ("teal",   "#E1F5EE", "#085041"),
+    ("purple", "#EEEDFE", "#3C3489"),
+    ("amber",  "#FAEEDA", "#633806"),
+    ("coral",  "#FAECE7", "#712B13"),
+    ("green",  "#EAF3DE", "#27500A"),
+    ("blue",   "#E6F1FB", "#0C447C"),
+]
+_source_color_cache: dict[str, tuple[str, str]] = {}
+
+
+def _source_colors(source: str) -> tuple[str, str]:
+    """Return (bg, fg) hex for a source name, stable across calls."""
+    if source not in _source_color_cache:
+        idx = len(_source_color_cache) % len(_SOURCE_COLORS)
+        _, bg, fg = _SOURCE_COLORS[idx]
+        _source_color_cache[source] = (bg, fg)
+    return _source_color_cache[source]
+
 
 @dataclass
 class FeedSource:
@@ -264,56 +284,229 @@ def collect_articles(config: dict, state: dict) -> list[Article]:
                 continue
             collected.append(item)
 
-    collected.sort(key=lambda item: item.published or dt.datetime.min.replace(tzinfo=dt.timezone.utc), reverse=True)
+    collected.sort(
+        key=lambda item: item.published or dt.datetime.min.replace(tzinfo=dt.timezone.utc),
+        reverse=True,
+    )
     return collected[:max_articles]
+
+
+# ---------------------------------------------------------------------------
+# Relative time helper
+# ---------------------------------------------------------------------------
+
+def _relative_time(published: dt.datetime | None) -> str:
+    if published is None:
+        return "date unknown"
+    delta = utc_now() - published
+    hours = int(delta.total_seconds() // 3600)
+    if hours < 1:
+        minutes = int(delta.total_seconds() // 60)
+        return f"{max(minutes, 1)}m ago"
+    if hours < 24:
+        return f"{hours}h ago"
+    days = hours // 24
+    return f"{days}d ago"
+
+
+# ---------------------------------------------------------------------------
+# HTML email builder
+# ---------------------------------------------------------------------------
+
+_EMAIL_CSS = """
+<style>
+  body,table,td,p,a{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif}
+  body{background:#f5f5f3;margin:0;padding:0}
+  .wrap{max-width:640px;margin:32px auto;background:#f5f5f3;padding:0 12px 40px}
+  .header{display:flex;align-items:center;justify-content:space-between;
+          padding:20px 0 16px;border-bottom:1px solid #e2e0d8;margin-bottom:20px}
+  .brand{display:flex;align-items:center;gap:10px}
+  .brand-icon{width:36px;height:36px;border-radius:8px;background:#E1F5EE;
+              display:flex;align-items:center;justify-content:center;
+              font-size:18px;flex-shrink:0}
+  .brand-name{font-size:15px;font-weight:600;color:#1a1a1a;margin:0}
+  .brand-sub{font-size:12px;color:#888780;margin:2px 0 0}
+  .date-badge{font-size:12px;font-weight:500;color:#085041;background:#E1F5EE;
+              border-radius:20px;padding:4px 12px;white-space:nowrap}
+  .intro{font-size:13px;color:#5F5E5A;line-height:1.6;margin-bottom:16px}
+  .intro strong{color:#1a1a1a;font-weight:500}
+  .stats-row{display:table;width:100%;border-collapse:separate;
+             border-spacing:10px 0;margin:0 -10px 20px}
+  .stat{display:table-cell;background:#fff;border:1px solid #e8e6de;
+        border-radius:8px;padding:10px 14px;width:33%}
+  .stat-n{font-size:22px;font-weight:600;color:#1a1a1a;display:block}
+  .stat-l{font-size:12px;color:#888780;margin-top:2px;display:block}
+  .section-label{font-size:11px;font-weight:600;letter-spacing:.06em;
+                 color:#888780;text-transform:uppercase;
+                 margin:20px 0 10px;padding-bottom:6px;
+                 border-bottom:1px solid #e2e0d8}
+  .card{background:#fff;border:1px solid #e8e6de;border-radius:10px;
+        padding:16px 18px;margin-bottom:10px}
+  .card.top{border-left:3px solid #1D9E75;border-radius:0 10px 10px 0}
+  .card-meta{display:flex;align-items:center;gap:8px;margin-bottom:8px;
+             flex-wrap:wrap}
+  .source-pill{font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;
+               letter-spacing:.02em}
+  .top-tag{font-size:11px;font-weight:600;color:#085041;
+           display:inline-flex;align-items:center;gap:3px}
+  .card-time{font-size:12px;color:#b4b2a9;margin-left:auto}
+  .card-title{font-size:15px;font-weight:600;color:#1a1a1a;line-height:1.45;
+              text-decoration:none;display:block;margin-bottom:7px}
+  .card-title:hover{color:#0F6E56}
+  .card-summary{font-size:13px;color:#5F5E5A;line-height:1.65;margin-bottom:10px}
+  .read-link{font-size:12px;color:#0F6E56;text-decoration:none;font-weight:500}
+  .read-link:hover{color:#085041}
+  .footer{margin-top:24px;padding-top:16px;border-top:1px solid #e2e0d8;
+          font-size:12px;color:#b4b2a9;line-height:1.7}
+  .unsub{color:#b4b2a9;text-decoration:underline}
+  @media(max-width:520px){
+    .stats-row{display:block}
+    .stat{display:block;width:auto;margin-bottom:8px}
+    .card-time{margin-left:0}
+  }
+</style>
+"""
+
+
+def _article_card_html(article: Article, index: int) -> str:
+    e = html.escape
+    is_top = index == 0
+    summary = e(summarize(article.summary))
+    title = e(article.title)
+    link = e(article.link)
+    source = e(article.source)
+    rel_time = e(_relative_time(article.published))
+    bg, fg = _source_colors(article.source)
+
+    top_tag = (
+        '<span class="top-tag">&#9889; Top story&nbsp;&nbsp;</span>'
+        if is_top else ""
+    )
+    card_class = "card top" if is_top else "card"
+
+    return f"""
+<div class="{card_class}">
+  <div class="card-meta">
+    {top_tag}
+    <span class="source-pill" style="background:{bg};color:{fg}">{source}</span>
+    <span class="card-time">{rel_time}</span>
+  </div>
+  <a class="card-title" href="{link}">{title}</a>
+  <p class="card-summary">{summary}</p>
+  <a class="read-link" href="{link}">Read full article &#8599;</a>
+</div>"""
 
 
 def build_email(config: dict, articles: list[Article]) -> tuple[str, str]:
     today = dt.datetime.now().strftime("%B %d, %Y")
-    subject = config.get("email", {}).get("subject", f"Daily AI Article Digest - {today}")
+    subject = config.get("email", {}).get("subject", f"Daily AI Article Digest — {today}")
+    lookback = int(config.get("lookback_hours", 30))
+    feed_count = len(config.get("feeds", []))
+    article_count = len(articles)
 
+    # ── plain-text version ──────────────────────────────────────────────────
     plain_lines = [subject, ""]
-    html_parts = [
-        "<html><body>",
-        f"<h2>{html.escape(subject)}</h2>",
-        "<p>Here are the newest AI articles found across the configured global sources.</p>",
-    ]
-
     if not articles:
         plain_lines.append("No new AI articles were found today.")
-        html_parts.append("<p>No new AI articles were found today.</p>")
     else:
-        html_parts.append("<ol>")
         for article in articles:
             published = (
                 article.published.strftime("%Y-%m-%d %H:%M UTC")
                 if article.published
                 else "date unavailable"
             )
-            summary = summarize(article.summary)
-            plain_lines.extend(
-                [
-                    article.title,
-                    f"Source: {article.source} | Published: {published}",
-                    summary,
-                    article.link,
-                    "",
-                ]
-            )
-            html_parts.extend(
-                [
-                    "<li>",
-                    f"<h3><a href=\"{html.escape(article.link)}\">{html.escape(article.title)}</a></h3>",
-                    f"<p><strong>{html.escape(article.source)}</strong> | {html.escape(published)}</p>",
-                    f"<p>{html.escape(summary)}</p>",
-                    "</li>",
-                ]
-            )
-        html_parts.append("</ol>")
+            plain_lines.extend([
+                article.title,
+                f"Source: {article.source} | Published: {published}",
+                summarize(article.summary),
+                article.link,
+                "",
+            ])
 
-    html_parts.append("</body></html>")
-    return "\n".join(plain_lines), "".join(html_parts)
+    # ── HTML version ────────────────────────────────────────────────────────
+    e = html.escape
+    sender_address = e(
+        config.get("email", {}).get("from", "digest@example.com")
+    )
 
+    # Split articles into "latest" (≤6h old) and "earlier"
+    cutoff = utc_now() - dt.timedelta(hours=6)
+    latest = [a for a in articles if a.published and a.published >= cutoff]
+    earlier = [a for a in articles if a not in latest]
+    # articles without a date go into latest
+    no_date = [a for a in articles if a.published is None and a not in latest]
+    latest += no_date
+
+    cards_html = ""
+    global_idx = 0
+    if latest:
+        cards_html += '<div class="section-label">Latest</div>'
+        for a in latest:
+            cards_html += _article_card_html(a, global_idx)
+            global_idx += 1
+    if earlier:
+        cards_html += '<div class="section-label">Earlier today</div>'
+        for a in earlier:
+            cards_html += _article_card_html(a, global_idx)
+            global_idx += 1
+
+    if not articles:
+        cards_html = "<p style='color:#888780;font-size:14px'>No new AI articles were found today.</p>"
+
+    html_body = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{e(subject)}</title>
+{_EMAIL_CSS}
+</head>
+<body>
+<div class="wrap">
+
+  <div class="header">
+    <div class="brand">
+      <div class="brand-icon">&#129504;</div>
+      <div>
+        <p class="brand-name">AI Article Digest</p>
+        <p class="brand-sub">Your curated daily intelligence briefing</p>
+      </div>
+    </div>
+    <span class="date-badge">{e(today)}</span>
+  </div>
+
+  <p class="intro">
+    Here are today&rsquo;s <strong>{article_count} AI article{'s' if article_count != 1 else ''}</strong>
+    pulled from <strong>{feed_count} source{'s' if feed_count != 1 else ''}</strong>
+    across the past <strong>{lookback} hours</strong>.
+    Everything below matched your AI keyword filter.
+  </p>
+
+  <table class="stats-row" role="presentation">
+    <tr>
+      <td class="stat"><span class="stat-n">{article_count}</span><span class="stat-l">Articles today</span></td>
+      <td class="stat"><span class="stat-n">{feed_count}</span><span class="stat-l">Sources scanned</span></td>
+      <td class="stat"><span class="stat-n">{lookback}h</span><span class="stat-l">Lookback window</span></td>
+    </tr>
+  </table>
+
+  {cards_html}
+
+  <div class="footer">
+    Sent by AI Article Digest &middot; {sender_address}<br>
+    Fetched from {feed_count} feed{'s' if feed_count != 1 else ''} &middot;
+    state saved to sent_articles.json<br><br>
+    <a class="unsub" href="#">Unsubscribe</a>
+  </div>
+
+</div>
+</body>
+</html>"""
+
+    return "\n".join(plain_lines), html_body
+
+
+# ---------------------------------------------------------------------------
+# Everything below is unchanged from the original script
+# ---------------------------------------------------------------------------
 
 def get_recipients(config: dict) -> list[str]:
     recipients = config.get("email", {}).get("to", [])
@@ -371,7 +564,9 @@ def send_email(config: dict, text_body: str, html_body: str) -> None:
 
 
 def update_state(path: Path, state: dict, articles: list[Article]) -> None:
-    sent_links = list(dict.fromkeys(state.get("sent_links", []) + [item.link for item in articles]))
+    sent_links = list(
+        dict.fromkeys(state.get("sent_links", []) + [item.link for item in articles])
+    )
     state["sent_links"] = sent_links[-1000:]
     state["last_run_utc"] = utc_now().isoformat()
     save_json(path, state)

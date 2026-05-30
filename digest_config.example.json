@@ -6,7 +6,7 @@
   "min_summary_chars": 120,
   "email": {
     "to": [
-      "joyghosh@yopmail.com"
+      "example@example.com"
     ],
     "from": "example@gmail.com",
     "subject": "Daily AI Article Digest"
