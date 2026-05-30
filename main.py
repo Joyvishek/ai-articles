@@ -572,10 +572,7 @@ def build_email(config: dict, articles: list[Article]) -> tuple[str, str]:
           <td style="padding-top:20px;border-top:1px solid #e2e0d8;
                      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,
                      sans-serif;font-size:12px;color:#b4b2a9;line-height:1.7">
-            Sent by AI Article Digest &middot; {sender_address}<br>
-            Fetched from {feed_count} feed{'s' if feed_count != 1 else ''} &middot;
-            state saved to sent_articles.json<br><br>
-            <a href="#" style="color:#b4b2a9;text-decoration:underline">Unsubscribe</a>
+            Sent by AI Article Digest on behalf of Joyvishek
           </td>
         </tr>
 
