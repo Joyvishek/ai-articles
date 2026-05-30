@@ -1,0 +1,11 @@
+services:
+  ai-articles:
+    build: .
+    volumes:
+      - ./digest_config.json:/app/digest_config.json:ro
+      - ./sent_articles.json:/app/sent_articles.json
+    environment:
+      DIGEST_SMTP_HOST: ${DIGEST_SMTP_HOST:-smtp.gmail.com}
+      DIGEST_SMTP_PORT: ${DIGEST_SMTP_PORT:-587}
+      DIGEST_SMTP_USERNAME: ${DIGEST_SMTP_USERNAME:-}
+      DIGEST_SMTP_PASSWORD: ${DIGEST_SMTP_PASSWORD:-}

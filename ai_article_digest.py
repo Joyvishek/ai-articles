@@ -76,7 +76,7 @@ def utc_now() -> dt.datetime:
 def load_json(path: Path, default):
     if not path.exists():
         return default
-    with path.open("r", encoding="utf-8") as handle:
+    with path.open("r", encoding="utf-8-sig") as handle:
         return json.load(handle)
 
 
@@ -398,6 +398,9 @@ def main() -> int:
 
     if args.dry_run:
         print(text_body)
+    elif not articles:
+        update_state(state_path, state, articles)
+        print("No new AI articles found. Email not sent.")
     else:
         send_email(config, text_body, html_body)
         update_state(state_path, state, articles)

@@ -1,6 +1,6 @@
 param(
   [string]$TaskName = "Daily AI Article Digest",
-  [string]$Time = "08:00"
+  [string]$Time = "12:00"
 )
 
 $ErrorActionPreference = "Stop"

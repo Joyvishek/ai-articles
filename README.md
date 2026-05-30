@@ -57,20 +57,22 @@ Send a real email:
 python .\ai_article_digest.py --config .\digest_config.json
 ```
 
+If no new AI articles are found, the app exits successfully and does not send an email.
+
 ## Run Every Day On Windows
 
 Open PowerShell in `D:\Projects\ai-articles`.
 
-After `digest_config.json` is ready, register the scheduled task for 8:00 AM:
+After `digest_config.json` is ready, register the scheduled task for 12:00 PM:
 
 ```powershell
-.\setup_windows_task.ps1 -Time "08:00"
+.\setup_windows_task.ps1 -Time "12:00"
 ```
 
 If PowerShell says scripts are disabled, use the included `.cmd` launcher:
 
 ```powershell
-.\setup_windows_task.cmd -Time "08:00"
+.\setup_windows_task.cmd -Time "12:00"
 ```
 
 If Windows says `Access denied`, open PowerShell as Administrator and run the same command again.
@@ -114,3 +116,80 @@ To delete the scheduled task:
 ```powershell
 Unregister-ScheduledTask -TaskName "Daily AI Article Digest" -Confirm:$false
 ```
+
+## Run Every Day On Linux Or macOS
+
+Make the helper script executable:
+
+```bash
+chmod +x ./run_daily.sh
+```
+
+Test it once:
+
+```bash
+./run_daily.sh
+```
+
+Open cron:
+
+```bash
+crontab -e
+```
+
+Run every day at 12:00 PM:
+
+```cron
+0 12 * * * cd /path/to/ai-articles && /usr/bin/env sh ./run_daily.sh >> ai_articles.log 2>&1
+```
+
+Use the full project path on your machine. On PythonAnywhere, use its scheduled task UI instead of cron.
+
+## Docker
+
+Build the image:
+
+```bash
+docker build -t ai-articles .
+```
+
+Run once with a local `digest_config.json`:
+
+```bash
+touch sent_articles.json
+docker run --rm -v "$PWD/digest_config.json:/app/digest_config.json:ro" -v "$PWD/sent_articles.json:/app/sent_articles.json" ai-articles
+```
+
+With Docker Compose:
+
+```bash
+cp .env.example .env
+docker compose run --rm ai-articles
+```
+
+Docker does not schedule jobs by itself. Schedule the `docker run` or `docker compose run` command with Windows Task Scheduler, cron, GitHub Actions, or your server's scheduler.
+
+## PythonAnywhere
+
+PythonAnywhere can run this as a scheduled task.
+
+1. Upload or clone this project into your PythonAnywhere account.
+2. Copy `digest_config.example.json` to `digest_config.json`.
+3. Set `email.to`, `email.from`, and SMTP settings.
+4. Prefer environment variables for the SMTP password:
+
+```bash
+export DIGEST_SMTP_HOST=smtp.gmail.com
+export DIGEST_SMTP_USERNAME=your_email@gmail.com
+export DIGEST_SMTP_PASSWORD=your_gmail_app_password
+```
+
+5. In PythonAnywhere, open **Tasks** and add a daily scheduled task for 12:00 PM.
+
+Example command:
+
+```bash
+cd /home/YOUR_USERNAME/ai-articles && python3 ai_article_digest.py --config digest_config.json
+```
+
+Free PythonAnywhere accounts may restrict outbound internet access to an allowlist. If a feed or SMTP host is blocked, use a paid account or another scheduler that allows outbound SMTP and RSS requests.
