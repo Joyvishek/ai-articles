@@ -668,7 +668,12 @@ def main() -> int:
     config_path = Path(args.config).resolve()
     state_path = Path(args.state).resolve()
     config = get_config(config_path)
-    state = load_json(state_path, {"sent_links": []})
+
+    fresh_state: dict = {"sent_links": [], "last_run_utc": None}
+    if not state_path.exists() or state_path.stat().st_size == 0:
+        save_json(state_path, fresh_state)
+        print(f"Created fresh state file at {state_path}")
+    state = load_json(state_path, fresh_state)
 
     if not args.dry_run and not get_recipients(config):
         print("No recipients configured. Scheduled run stopped before fetching or sending.")
