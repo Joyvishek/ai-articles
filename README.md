@@ -175,21 +175,35 @@ PythonAnywhere can run this as a scheduled task.
 
 1. Upload or clone this project into your PythonAnywhere account.
 2. Copy `digest_config.example.json` to `digest_config.json`.
-3. Set `email.to`, `email.from`, and SMTP settings.
-4. Prefer environment variables for the SMTP password:
+3. Set `email.to`, `email.from`, and SMTP settings. You can leave `smtp.password`
+   as a placeholder if you put the password in `.env`.
+4. Copy `.env.example` to `.env` and fill in your Gmail SMTP details:
 
 ```bash
-export DIGEST_SMTP_HOST=smtp.gmail.com
-export DIGEST_SMTP_USERNAME=your_email@gmail.com
-export DIGEST_SMTP_PASSWORD=your_gmail_app_password
+cp .env.example .env
+nano .env
 ```
 
-5. In PythonAnywhere, open **Tasks** and add a daily scheduled task for 12:00 PM.
+Keep values quoted in `.env`, especially app passwords.
+
+5. Make the PythonAnywhere runner executable:
+
+```bash
+chmod +x run_pythonanywhere.sh
+```
+
+6. Test it once from a PythonAnywhere Bash console:
+
+```bash
+cd /home/YOUR_USERNAME/ai-articles && ./run_pythonanywhere.sh
+```
+
+7. In PythonAnywhere, open **Tasks** and add a daily scheduled task for 12:00 PM.
 
 Example command:
 
 ```bash
-cd /home/YOUR_USERNAME/ai-articles && python3 main.py --config digest_config.json
+cd /home/YOUR_USERNAME/ai-articles && ./run_pythonanywhere.sh
 ```
 
 Free PythonAnywhere accounts may restrict outbound internet access to an allowlist. If a feed or SMTP host is blocked, use a paid account or another scheduler that allows outbound SMTP and RSS requests.
