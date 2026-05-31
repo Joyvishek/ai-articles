@@ -63,5 +63,6 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add state/sent_articles_state.json
           git commit -m "Update sent article state [skip ci]"
+          git fetch --prune origin main
           git pull --rebase origin main
-          git push
+          git push origin HEAD:main
